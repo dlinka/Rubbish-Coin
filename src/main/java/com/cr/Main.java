@@ -25,6 +25,10 @@ import static com.cr.Utils.*;
 public class Main {
 
     public static void main(String[] args) {
+        handleSinglePair("UFO_USDT");
+    }
+
+    public static void handleAllPair(){
         List<CurrencyPair> pairs = pairs();
         log.info("总计算数量 :{}", pairs.size());
         for (int i = 0; i < pairs.size(); i++) {
@@ -34,6 +38,11 @@ public class Main {
             log.debug("请求结束, 返回数据量:{}", response.size());
             ForkJoinPool.commonPool().submit(new CalMarginFreq(pairId, response));
         }
+    }
+
+    public static void handleSinglePair(String pairId) {
+        List<List<String>> response = listCandlesticks(pairId);
+        ForkJoinPool.commonPool().submit(new CalMarginFreq(pairId, response));
     }
 
     public static List<Currency> currencies(SpotApi API) {
@@ -98,18 +107,30 @@ public class Main {
                 BigDecimal todayClose = Utils.scale(k.get(2));
                 log.debug("时间: {}, 开盘: {}, 最高: {}, 最低: {}, 闭盘: {}", date, stringOfBigDecimal(todayOpen), stringOfBigDecimal(todayHigh), stringOfBigDecimal(todayLow), stringOfBigDecimal(todayClose));
 
-                if (Objects.isNull(begin)) { //以第一日最低价格为起始价格进行计算
-                    begin = todayLow;
+                if (Objects.isNull(begin)) { //以第一日闭盘价格为起始价格进行计算
+                    begin = todayClose;
                     continue;
                 }
 
-                if (LineColor.color(todayOpen, todayClose).equals(LineColor.RED)) { //涨行情
+                LineColor color = LineColor.color(todayOpen, todayClose);
+                if (LineColor.GREEN.equals(color)) { //跌行情
+                    if (todayLow.compareTo(begin) < 0) {
+                        log.info("跌行情重新赋值起始点: {} > {}", stringOfBigDecimal(begin), stringOfBigDecimal(todayLow));
+                        begin = todayLow;
+                    } else {
+                        log.info("{}市场跌行情情况3, 日期{}", pairId, date);
+                    }
+                    continue;
+                }
+                if (LineColor.RED.equals(color)) { //涨行情
                     if (todayHigh.compareTo(begin) < 0) { //对应开盘跳水的情况
-                        log.error("{}:{}开盘跳水", pairId);
+                        log.error("{}市场涨行情情况2, 日期:{}", pairId, date);
                         begin = todayLow;
                     }
+
                     BigDecimal trueRange = Utils.calTRByBegin(begin, todayHigh, todayLow); //真实波动
                     BigDecimal percentRange = trueRange.divide(begin, 2, RoundingMode.HALF_UP); //涨幅百分比
+
                     if (percentRange.compareTo(MARGIN) > 0) { //超过自定义涨幅
                         freg++; //波动+1
                         log.warn("{}超过涨幅{}次, 涨幅: {}", pairId, freg, percentRange);
@@ -117,22 +138,18 @@ public class Main {
                             Utils.write(pairId + "\n");
                         }
                         begin = todayClose; //计算下一次拉盘
-                    } else {
-                        log.warn("涨行情继续跟踪");
-                        begin = begin.compareTo(todayLow) > 0 ? todayLow : begin; //小趋势继续跟踪
+                    } else { //小趋势继续跟踪
+                        log.warn("{}涨行情继续跟踪", pairId);
+                        begin = todayLow.compareTo(begin) > 0 ? begin : todayLow;
                     }
-                } else { //跌行情
-                    if (begin.compareTo(todayLow) > 0) {
-                        log.info("跌行情重新计算起始点: {} > {}", stringOfBigDecimal(begin), stringOfBigDecimal(todayLow));
-                        begin = todayLow;
-                    }
+                    continue;
                 }
             }
         }
     }
 
     //哪天开始
-    static long FROM = DateUtil.lastWeek().getTime() / 1000;
+    static long FROM = DateUtil.lastMonth().getTime() / 1000;
     //哪天结束
     static long TO = DateUtil.currentSeconds();
     //计算一天的交易
