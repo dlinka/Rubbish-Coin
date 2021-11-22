@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<configuration>
+
+    <property name="PATTERN" value="%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{50} - %msg%n"/>
+    <property name="PATH" value="rubbish.log"/>
+
+    <appender name="STDOUT" class="ch.qos.logback.core.ConsoleAppender">　　　　　
+        <encoder>
+            <pattern>${PATTERN}</pattern>　　
+        </encoder>
+    </appender>
+    <appender name="Rubbish" class="ch.qos.logback.core.FileAppender">
+        <file>${PATH}</file>
+        <encoder>　　　　　　
+            <pattern>${PATTERN}</pattern>　　　　　
+        </encoder>
+    </appender>
+
+    <root level="DEBUG">　
+        <appender-ref ref="STDOUT"/>
+        <appender-ref ref="Rubbish"/>
+    </root>
+</configuration>
