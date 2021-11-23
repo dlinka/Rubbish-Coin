@@ -25,17 +25,22 @@ import static com.cr.Utils.*;
 public class Main {
 
     public static void main(String[] args) {
-        handleSinglePair("UFO_USDT");
+        //handleSinglePair("UFO_USDT");
+        handleAllPair();
     }
 
-    public static void handleAllPair(){
+    public static void handleAllPair() {
         List<CurrencyPair> pairs = pairs();
-        log.info("总计算数量 :{}", pairs.size());
+        log.info("总计算数量: {}", pairs.size());
         for (int i = 0; i < pairs.size(); i++) {
             String pairId = pairs.get(i).getId();
-            log.debug("请求开始: {}", pairId);
+            boolean ifFilter = filterCoin(pairId);
+            if (ifFilter) {
+                log.error("不需要计算 {}市场", pairId);
+                continue;
+            }
             List<List<String>> response = listCandlesticks(pairId);
-            log.debug("请求结束, 返回数据量:{}", response.size());
+            log.debug("远程请求返回数据量:{}", response.size());
             ForkJoinPool.commonPool().submit(new CalMarginFreq(pairId, response));
         }
     }
@@ -94,6 +99,8 @@ public class Main {
          */
         @Override
         protected void compute() {
+            //记录起始价格日期
+            DateTime beginTime = null;
             //计算波动的起始价格
             BigDecimal begin = null;
             //波动频率次数
@@ -109,41 +116,46 @@ public class Main {
 
                 if (Objects.isNull(begin)) { //以第一日闭盘价格为起始价格进行计算
                     begin = todayClose;
+                    beginTime = date;
                     continue;
                 }
 
                 LineColor color = LineColor.color(todayOpen, todayClose);
                 if (LineColor.GREEN.equals(color)) { //跌行情
-                    if (todayLow.compareTo(begin) < 0) {
-                        log.info("跌行情重新赋值起始点: {} > {}", stringOfBigDecimal(begin), stringOfBigDecimal(todayLow));
+                    if (todayLow.compareTo(begin) < 1) { //情况1和情况2
+                        log.debug("{}市场跌行情需要重新调整起始点: {} > {}", pairId, stringOfBigDecimal(begin), stringOfBigDecimal(todayLow));
                         begin = todayLow;
-                    } else {
-                        log.info("{}市场跌行情情况3, 日期{}", pairId, date);
+                        beginTime = date;
+                    } else { //情况3
+                        log.debug("{}市场跌行情无需调整起始点, 日期{}", pairId, date);
                     }
-                    continue;
                 }
                 if (LineColor.RED.equals(color)) { //涨行情
-                    if (todayHigh.compareTo(begin) < 0) { //对应开盘跳水的情况
-                        log.error("{}市场涨行情情况2, 日期:{}", pairId, date);
+                    if (todayHigh.compareTo(begin) < 1) { //比如开盘跳水的情况
+                        log.debug("{}市场涨行情需要重新调整起始点, 日期:{}", pairId, date);
                         begin = todayLow;
+                        beginTime = date;
                     }
 
-                    BigDecimal trueRange = Utils.calTRByBegin(begin, todayHigh, todayLow); //真实波动
-                    BigDecimal percentRange = trueRange.divide(begin, 2, RoundingMode.HALF_UP); //涨幅百分比
+                    BigDecimal percentRange = Utils.calPercentRange(begin, todayHigh, todayLow); //涨幅百分比
 
                     if (percentRange.compareTo(MARGIN) > 0) { //超过自定义涨幅
                         freg++; //波动+1
-                        log.warn("{}超过涨幅{}次, 涨幅: {}", pairId, freg, percentRange);
-                        if (freg == FREQ) { //超过3次记录
-                            Utils.write(pairId + "\n");
-                        }
+                        log.warn("{}超过涨幅{}次, 涨幅: {}, 日期:{}-{}", pairId, freg, percentRange, beginTime, date);
                         begin = todayClose; //计算下一次拉盘
+                        beginTime = date;
                     } else { //小趋势继续跟踪
-                        log.warn("{}涨行情继续跟踪", pairId);
-                        begin = todayLow.compareTo(begin) > 0 ? begin : todayLow;
+                        log.debug("{}涨行情继续跟踪", pairId);
+                        if (todayLow.compareTo(begin) < 1) { //情况1
+                            begin = todayLow;
+                            beginTime = date;
+                        }
                     }
-                    continue;
                 }
+            }
+
+            if (freg >= FREQ) { //超过N次记录
+                log.info("庄狗币 - [{}], 拉盘 - [{}]", pairId ,freg);
             }
         }
     }
@@ -152,12 +164,12 @@ public class Main {
     static long FROM = DateUtil.lastMonth().getTime() / 1000;
     //哪天结束
     static long TO = DateUtil.currentSeconds();
-    //计算一天的交易
+    //一天的交易
     static String INTERNAL = "1d";
     //幅度
     static BigDecimal MARGIN = new BigDecimal("0.3");
     //频率
-    static int FREQ = 3;
+    static int FREQ = 5;
 
     static ApiClient client;
     static SpotApi spotAPI;
