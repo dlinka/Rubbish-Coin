@@ -36,7 +36,7 @@ public class Main {
             String pairId = pairs.get(i).getId();
             boolean ifFilter = filterCoin(pairId);
             if (ifFilter) {
-                log.error("不需要计算 {}市场", pairId);
+                log.debug("不需要计算 {}市场", pairId);
                 continue;
             }
             List<List<String>> response = listCandlesticks(pairId);
@@ -169,7 +169,7 @@ public class Main {
     //幅度
     static BigDecimal MARGIN = new BigDecimal("0.3");
     //频率
-    static int FREQ = 5;
+    static int FREQ = 11;
 
     static ApiClient client;
     static SpotApi spotAPI;
